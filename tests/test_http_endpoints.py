@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from service import build_app
 
 class HelloServiceHttpTests(AioHTTPTestCase):
     async def get_application(self):
-        return await build_app(Path(__file__).resolve().parents[1] / 'conf.toml')
+        return await build_app(Path(__file__).resolve().parents[1] / 'conf.example.toml')
 
     async def test_status_endpoint_returns_expected_runtime_surface(self):
         resp = await self.client.request('GET', '/status')
@@ -99,6 +100,44 @@ class HelloServiceHttpTests(AioHTTPTestCase):
         payload = await resp.json()
         self.assertFalse(payload['ok'])
         self.assertEqual(payload['code'], 'invalid_query_parameter')
+
+
+
+class AuthBypassHealthzTests(AioHTTPTestCase):
+    async def get_application(self):
+        source = (Path(__file__).resolve().parents[1] / 'conf.example.toml').read_text()
+        source = source.replace(
+            """[auth]
+enabled = false
+# Simple starter-mode tokens. Replace with a custom provider before production.
+static_tokens = {}""",
+            """[auth]
+enabled = true
+# Simple starter-mode tokens. Replace with a custom provider before production.
+static_tokens.demo.subject = "demo-user"
+static_tokens.demo.scopes = ["hello:read"]""",
+        )
+        self._tmpdir = tempfile.TemporaryDirectory()
+        config_path = Path(self._tmpdir.name) / 'conf.toml'
+        config_path.write_text(source)
+        return await build_app(config_path)
+
+    async def tearDownAsync(self):
+        if hasattr(self, '_tmpdir'):
+            self._tmpdir.cleanup()
+        await super().tearDownAsync()
+
+    async def test_healthz_is_reachable_without_auth_when_auth_enabled(self):
+        resp = await self.client.request('GET', '/healthz')
+        self.assertEqual(resp.status, 200)
+        payload = await resp.json()
+        self.assertTrue(payload['ok'])
+
+    async def test_status_is_reachable_without_auth_when_enabled(self):
+        resp = await self.client.request('GET', '/status')
+        self.assertEqual(resp.status, 200)
+        payload = await resp.json()
+        self.assertTrue(payload['ok'])
 
 
 if __name__ == '__main__':

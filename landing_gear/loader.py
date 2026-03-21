@@ -98,7 +98,7 @@ class ModuleManager:
                 self._loaded_ids.add(module_id)
             except Exception as exc:
                 self.ctx.record_module_state(module_id, phase='failed', last_error=str(exc))
-                self.ctx.record_lifecycle_event('module.start_failed', module_id=module.INFO.id, kind=module.INFO.kind, error=str(exc))
+                self.ctx.record_lifecycle_event('module.start_failed', module_id=instance.INFO.id, kind=instance.INFO.kind, error=str(exc))
                 raise
         return loaded
 

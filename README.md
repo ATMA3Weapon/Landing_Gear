@@ -1,44 +1,22 @@
 # Landing Gear Hello Service Starter
 
-A repo-ready starter for building small aiohttp services on top of the reusable Landing Gear kernel.
+A small but real Landing Gear starter repo that separates the reusable kernel from the example service built on top of it.
 
-This repository intentionally contains **two layers**:
-
-- `landing_gear/` — reusable kernel code you should keep generic
-- `hello_service/` — example service code you are expected to rename and replace
-
-The goal is to give you a template that is actually runnable, testable, packageable, and easy to fork into a real service.
-
-## Who this is for
-
-Use this starter when you want:
-
-- a small Python service with an aiohttp HTTP surface
-- a clean operator flow with `install.py`
-- a reusable kernel layer separated from service-specific code
-- a starting point you can publish as your own repo after renaming the example package
-
-## What ships in this repo
-
-- `landing_gear/` — config loading, runtime metadata, app assembly, install helpers
-- `hello_service/` — example repository plus `hello` routes
+- `landing_gear/` — generic kernel code shared across services
+- `hello_service/` — example domain package, repository, and routes
 - `service.py` — aiohttp application entrypoint
-- `install.py` — CLI for check, doctor, status, readiness, smoke, and run
-- `conf.example.toml` — commented template config for first setup
-- `tests/` — regression, HTTP, config, hygiene, and packaging tests
-- `.github/workflows/ci.yml` — CI for tests, operator checks, syntax compile, and package builds
+- `install.py` — operator CLI for check, doctor, smoke, status, and run
+- `conf.example.toml` — commented template config
 
-## Prerequisites
+## What this repo is for
 
-- Python 3.11, 3.12, or 3.13
-- `venv` support
-- a shell that can run the commands below
+Use this repo as the starting point for a new service. Copy the repo shape and operator flow first, then replace the example service pieces with your own domain logic.
 
 ## Quick start
 
 ```bash
 python -m venv .venv
-. .venv/bin/activate  # Windows: .venv\Scriptsctivate
+. .venv/bin/activate  # Windows: .venv\Scripts\activate
 python -m pip install -U pip setuptools wheel
 python -m pip install -e .
 cp conf.example.toml conf.toml  # Windows: copy conf.example.toml conf.toml
@@ -46,26 +24,6 @@ python install.py check
 python install.py smoke
 python install.py run
 ```
-
-Once the service is running, try:
-
-```bash
-curl http://127.0.0.1:8780/healthz
-curl http://127.0.0.1:8780/status
-curl "http://127.0.0.1:8780/api/hello?name=Erica"
-curl -X POST http://127.0.0.1:8780/api/hello   -H "Content-Type: application/json"   -d '{"name": "Erica"}'
-```
-
-## First-run workflow
-
-If you are turning this into a real service, do these in order:
-
-1. Copy `conf.example.toml` to `conf.toml`.
-2. Change `service.name` and `service.package_root`.
-3. Follow `STARTER_RENAME_GUIDE.md` and rename `hello_service` to your real package.
-4. Replace `hello_service/core_modules/hello.py` with your real endpoints.
-5. Replace `hello_service/domain/repository.py` with your real domain storage and logic.
-6. Update `README.md` and `pyproject.toml` before your first public commit.
 
 ## Operator commands
 
@@ -80,16 +38,16 @@ python install.py smoke
 python install.py run
 ```
 
-What each command is for:
+What each one does:
 
-- `check` — compact summary of repo and config health
-- `doctor` — more detailed explanations for structural or config problems
-- `status` — routes, ownership, lifecycle, and runtime metadata
-- `readiness` — whether the repo is shaped well for reuse/publishing
-- `blueprint` — expected files and package layout checks
-- `reference` — guidance on what should stay generic vs be customized
-- `smoke` — build the aiohttp app and immediately tear it down
-- `run` — start the service
+- `check` gives a compact summary of the current service state
+- `doctor` explains config and structural issues in more detail
+- `status` shows routes, ownership, lifecycle, and runtime metadata
+- `readiness` scores whether the repo is shaped well for reuse
+- `blueprint` checks expected files and packages
+- `reference` explains what should be copied vs adapted for a new service
+- `smoke` builds the aiohttp app and immediately tears it down
+- `run` starts the service
 
 ## HTTP surface
 
@@ -102,130 +60,103 @@ The example service exposes:
 - `GET /api/hello/history?limit=10&offset=0`
 - `GET /api/service/runtime`
 
-Behavior notes:
+Example calls:
 
-- responses use an `{ok, result, meta}` style envelope on success
-- bad JSON returns `400` with `code = "invalid_json"`
-- unknown JSON fields on `POST /api/hello` return `400`
-- invalid pagination values return `400`
-- internal failures return a generic `internal error` response while the traceback stays in logs
+```bash
+curl http://127.0.0.1:8780/healthz
+curl http://127.0.0.1:8780/status
+curl "http://127.0.0.1:8780/api/hello?name=Erica"
+curl -X POST http://127.0.0.1:8780/api/hello -H "Content-Type: application/json" -d '{"name": "Erica"}'
+```
 
-## Repository layout and ownership
+## Files to edit first when turning this into a real service
+
+1. `conf.toml`
+2. `hello_service/core_modules/hello.py`
+3. `hello_service/domain/repository.py`
+4. `README.md`
+5. `pyproject.toml`
+6. `STARTER_RENAME_GUIDE.md`
+
+## Framework code vs example code
 
 Keep these generic:
 
 - `landing_gear/*`
 - operator flow in `install.py`
-- app assembly in `service.py`
+- app creation in `service.py`
 
-Replace or rename these for your service:
+Replace or rename these per service:
 
 - `hello_service/*`
-- service identity fields in `conf.toml`
-- service package metadata in `pyproject.toml`
-- public endpoints, repository methods, and docs
+- service name, package root, and module config in `conf.toml`
+- public endpoints and repository methods
 
-## Files to edit first
+## Tests
 
-1. `conf.toml`
-2. `hello_service/core_modules/hello.py`
-3. `hello_service/domain/repository.py`
-4. `pyproject.toml`
-5. `README.md`
-6. `STARTER_RENAME_GUIDE.md`
-
-## Config notes
-
-Use `conf.example.toml` as the starting point.
-
-Development-friendly defaults are intentional:
-
-- auth disabled
-- in-memory example repository
-- TLS disabled
-
-Before exposing a real service to other systems, revisit:
-
-- `[auth]`
-- `[tls]`
-- `[outbound_tls]`
-- module import paths after rename
-
-## Local verification
-
-Run the main local quality checks with:
+Run the full local test pass with:
 
 ```bash
 python -m unittest discover -s tests -v
-python install.py check
-python install.py status
-python install.py readiness
 python install.py smoke
+python install.py check
 ```
 
-Optional packaging verification:
+The test suite covers:
+
+- runtime regressions from the original bug report
+- HTTP endpoint behavior
+- config validation
+- starter hygiene around runtime metadata
+
+## Packaging
+
+This repo includes source-distribution hygiene rules and CI that builds both an sdist and a wheel. For local build validation, install the optional dev tools and run:
 
 ```bash
 python -m pip install -e .[dev]
 python -m build
 ```
 
-## What the tests cover
+## Publish checklist
 
-- regressions from the original bug report
-- aiohttp endpoint behavior
-- config validation
-- template hygiene against stale service names and phantom metadata
-- packaging artifact inspection so built sdists/wheels do not carry `__pycache__` or `.pyc` junk
-
-## CI behavior
-
-The GitHub Actions workflow currently runs:
-
-- the unittest suite
-- `python install.py check`
-- `python install.py status`
-- `python install.py readiness`
-- `python install.py smoke`
-- `python -m compileall` against repo code
-- `python -m pip check`
-- `python -m build`
-
-on Python 3.11, 3.12, and 3.13.
-
-## Publishing and release flow
-
-Before tagging a release:
+Before tagging a release, verify:
 
 ```bash
 python -m unittest discover -s tests -v
 python install.py check
-python install.py status
-python install.py readiness
 python install.py smoke
 python -m build
 ```
 
-Then:
-
-1. update `CHANGELOG.md`
-2. bump the version in `pyproject.toml`
-3. verify `conf.example.toml` still matches the documented starter shape
-4. make sure `STARTER_RENAME_GUIDE.md` still reflects the current package layout
-5. create the tag only after CI is green
-
 ## Common pitfalls
 
-- leaking service-specific names back into `landing_gear/`
-- advertising routes in metadata that the service does not actually expose
-- shipping local build/test junk such as `__pycache__` or `.pyc`
-- forgetting to rename `hello_service` imports before publishing your own service
-- copying `conf.toml` forward without updating package import paths
+- Do not put service-specific names back into `landing_gear/`
+- Do not advertise routes in metadata that the service does not actually expose
+- Keep config examples commented and readable instead of duplicating live config verbatim
+- Treat `landing_gear/` as shared kernel code and move domain rules into the service package
 
-## Related docs
 
-- `STARTER_RENAME_GUIDE.md` — rename walkthrough
-- `SERVICE_SKELETON.md` — structural reference
-- `SERVICE_BLUEPRINT_CHECKLIST.md` — starter shape checklist
-- `CONTRIBUTING.md` — contribution expectations
-- `CHANGELOG.md` — release notes
+## Rename this starter into your own service
+
+There is now a dedicated walkthrough in `STARTER_RENAME_GUIDE.md`. Follow it before your first public commit so you do not leave `hello_service` names behind in package imports, config, and docs.
+
+## Production-hardening notes
+
+This starter intentionally ships with development-friendly defaults:
+
+- auth disabled
+- in-memory state for the example repository
+- TLS disabled
+
+Before running a real service for other clients or systems, review those surfaces and replace the example defaults with service-specific choices.
+
+
+## Local config workflow
+- Commit `conf.example.toml` as the documented template.
+- Keep your working `conf.toml` local and out of version control.
+- Create it by copying the example before first run.
+
+## Health checks and auth
+- `/healthz` and `/status` are intended for operator and probe access.
+- The middleware skips authentication for those built-in routes so load balancer or orchestrator health checks do not fail when service auth is enabled.

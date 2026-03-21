@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from hello_service.core_modules.hello import HelloModule
+import landing_gear.loader as loader_mod
 from hello_service.domain import HelloRepository
 from landing_gear.loader import ModuleManager
+from landing_gear.modules import CoreModule, ModuleInfo
 from landing_gear.requests import ensure_identifier_value, get_query_pagination
 from landing_gear.service_shape import build_service_shape
 
@@ -58,13 +62,21 @@ class FakeCtx:
 class LoaderCtx:
     def __init__(self):
         self.events = []
+        self.event_payloads = []
         self.state = {}
+        self.service_name = 'hello-service'
+        self.calls = SimpleNamespace(calls={})
+        self.loaded_modules = []
+
+    def claim_config_section(self, *args, **kwargs):
+        return None
 
     def record_module_state(self, *args, **kwargs):
         return None
 
     def record_lifecycle_event(self, name, **kwargs):
         self.events.append(name)
+        self.event_payloads.append((name, kwargs))
 
     async def emit_hook(self, *args, **kwargs):
         return []
@@ -77,7 +89,6 @@ class LoaderCtx:
             return {}
 
     tasks = _Tasks()
-    loaded_modules = []
 
 
 class StartFailModule:
@@ -92,6 +103,13 @@ class StopFailModule:
 
     async def stop(self):
         raise RuntimeError('boom')
+
+
+class SetupFailModule(CoreModule):
+    INFO = ModuleInfo(id='mod.setup', name='setup-fail', version='0.1.0', description='fails in setup', kind='core')
+
+    async def setup(self):
+        raise RuntimeError('boom during setup')
 
 
 class StarterRegressionTests(unittest.IsolatedAsyncioTestCase):
@@ -126,8 +144,38 @@ class StarterRegressionTests(unittest.IsolatedAsyncioTestCase):
             await manager.stop_all()
         self.assertIn('module.stop_failed', ctx.events)
 
-
-
+    async def test_loader_setup_failure_uses_instance_info_in_exception_path(self):
+        ctx = LoaderCtx()
+        manager = ModuleManager(ctx)
+        spec = SimpleNamespace(
+            name='setup_fail',
+            depends_on=[],
+            import_path='fake.module',
+            class_name='SetupFailModule',
+            config={},
+            manifest_path=None,
+            compatible_services=['hello-service'],
+        )
+        fake_module = SimpleNamespace(SetupFailModule=SetupFailModule, __file__=__file__)
+        fake_manifest = SimpleNamespace(
+            module_id='mod.setup',
+            name='setup-fail',
+            version='0.1.0',
+            kind='core',
+            compatible_services=['hello-service'],
+            required_calls=[],
+            required_scopes=[],
+            tags=[],
+        )
+        with patch.object(loader_mod.importlib, 'import_module', return_value=fake_module):
+            with patch.object(loader_mod, 'resolve_manifest', return_value=fake_manifest):
+                with patch.object(loader_mod, 'validate_manifest', return_value=None):
+                    with self.assertRaisesRegex(RuntimeError, 'boom during setup'):
+                        await manager.load([spec], kind='core_module')
+        self.assertIn('module.start_failed', ctx.events)
+        failure_events = [payload for name, payload in ctx.event_payloads if name == 'module.start_failed']
+        self.assertTrue(failure_events)
+        self.assertEqual(failure_events[-1]['module_id'], 'mod.setup')
 
     def test_runtime_views_do_not_advertise_phantom_routes(self):
         from landing_gear.context import ServiceContext
@@ -156,6 +204,14 @@ class StarterRegressionTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('service_domain', groups)
         self.assertEqual(groups['service_domain'], ['repo'])
         self.assertNotIn('broker_domain', groups)
+
+    def test_hello_repository_history_is_trimmed_in_place(self):
+        repo = HelloRepository(service_name='hello-service')
+        original = repo.history
+        for idx in range(30):
+            repo.greet(f'name-{idx}')
+        self.assertIs(repo.history, original)
+        self.assertEqual(len(repo.history), 25)
 
 
 class StaticRegressionTests(unittest.TestCase):

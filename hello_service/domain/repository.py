@@ -20,7 +20,8 @@ class HelloRepository:
             'at': datetime.now(timezone.utc).isoformat(),
         }
         self.history.append(event)
-        self.history = self.history[-25:]
+        if len(self.history) > 25:
+            del self.history[:-25]
         return event
 
     def summary(self) -> dict[str, Any]:

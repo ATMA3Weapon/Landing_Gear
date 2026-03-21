@@ -22,7 +22,6 @@ def _correlation_meta(request: web.Request) -> dict[str, str]:
 @web.middleware
 async def error_middleware(request: web.Request, handler):
     try:
-        request.app[LANDING_GEAR_CTX_KEY]
         return await handler(request)
     except ServiceError as exc:
         return json_error(
@@ -53,6 +52,10 @@ async def error_middleware(request: web.Request, handler):
 
 @web.middleware
 async def auth_middleware(request: web.Request, handler):
+    route = request.match_info.route
+    path = request.path
+    if getattr(route, 'name', None) in {'landing_gear.healthz', 'landing_gear.status'} or path in {'/healthz', '/status'}:
+        return await handler(request)
     ctx = request.app[LANDING_GEAR_CTX_KEY]
     await ctx.authenticate_request(request)
     return await handler(request)
@@ -162,8 +165,8 @@ class KernelApp:
                 request=request,
             )
 
-        self.web_app.router.add_get('/healthz', healthz)
-        self.web_app.router.add_get('/status', status)
+        self.web_app.router.add_get('/healthz', healthz, name='landing_gear.healthz')
+        self.web_app.router.add_get('/status', status, name='landing_gear.status')
 
     async def _on_cleanup(self, _app: web.Application) -> None:
         if self.module_manager is not None:

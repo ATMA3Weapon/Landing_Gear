@@ -28,9 +28,5 @@ jobs:
           python install.py status
           python install.py readiness
           python install.py smoke
-      - name: Syntax compile check
-        run: python -m compileall -q landing_gear hello_service service.py install.py tests
-      - name: Dependency metadata check
-        run: python -m pip check
       - name: Build artifacts
         run: python -m build

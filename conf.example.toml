@@ -2,11 +2,11 @@
 # Copy this to conf.toml and then change the service identity, port, and any auth/TLS settings.
 
 [service]
-name = "your-service"  # rename before publishing
+name = "hello-service"  # rename before publishing your own fork
 version = "0.1.0"
 host = "127.0.0.1"
 port = 8780
-package_root = "your_service"  # rename before publishing
+package_root = "hello_service"  # rename before publishing your own fork
 entrypoint = "service.py"
 install_flow = "install.py"
 kernel_package = "landing_gear"
@@ -27,7 +27,8 @@ enabled = false
 # Simple starter-mode tokens. Replace with a custom provider before production.
 static_tokens = {}
 # Example:
-# static_tokens = { admin = "change-me" }
+# static_tokens.demo.subject = "demo-user"
+# static_tokens.demo.scopes = ["hello:read"]
 # provider_path = "my_service.auth:build_provider"
 
 [tls]
@@ -43,5 +44,5 @@ enabled = false
 
 [core_modules.hello]
 enabled = true
-import_path = "your_service.core_modules.hello"  # update after package rename
+import_path = "hello_service.core_modules.hello"  # update after package rename
 class_name = "HelloModule"
