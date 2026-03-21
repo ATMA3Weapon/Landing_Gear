@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "landing-gear-hello-service-starter"
+version = "0.1.0"
+description = "Standalone Landing Gear starter with a basic hello-world service example"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "OpenAI"}]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Framework :: AsyncIO",
+]
+dependencies = [
+  "aiohttp>=3.9,<4",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["landing_gear*", "hello_service*"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__/*", "*.pyc"]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+]

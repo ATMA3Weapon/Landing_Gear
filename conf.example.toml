@@ -1,0 +1,47 @@
+# Example configuration for a new Landing Gear service built from this starter.
+# Copy this to conf.toml and then change the service identity, port, and any auth/TLS settings.
+
+[service]
+name = "your-service"  # rename before publishing
+version = "0.1.0"
+host = "127.0.0.1"
+port = 8780
+package_root = "your_service"  # rename before publishing
+entrypoint = "service.py"
+install_flow = "install.py"
+kernel_package = "landing_gear"
+core_modules_package = "core_modules"
+plugins_package = "plugins"
+domain_package = "domain"
+repositories_package = "domain"
+schemas_package = "domain"
+states_package = "domain"
+
+[logging]
+# DEBUG, INFO, WARNING, ERROR
+level = "INFO"
+
+[auth]
+# Enable bearer-token auth when you are no longer developing anonymously.
+enabled = false
+# Simple starter-mode tokens. Replace with a custom provider before production.
+static_tokens = {}
+# Example:
+# static_tokens = { admin = "change-me" }
+# provider_path = "my_service.auth:build_provider"
+
+[tls]
+# Enable inbound HTTPS only after cert_file and key_file are set.
+enabled = false
+# cert_file = "certs/service.crt"
+# key_file = "certs/service.key"
+
+[outbound_tls]
+# Enable when this service makes outbound HTTPS/TLS connections that need custom CA material.
+enabled = false
+# ca_file = "certs/ca.pem"
+
+[core_modules.hello]
+enabled = true
+import_path = "your_service.core_modules.hello"  # update after package rename
+class_name = "HelloModule"

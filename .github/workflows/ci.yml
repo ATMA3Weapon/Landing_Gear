@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e .[dev]
+      - name: Unit and integration tests
+        run: python -m unittest discover -s tests -v
+      - name: Operator smoke checks
+        run: |
+          python install.py check
+          python install.py status
+          python install.py readiness
+          python install.py smoke
+      - name: Syntax compile check
+        run: python -m compileall -q landing_gear hello_service service.py install.py tests
+      - name: Dependency metadata check
+        run: python -m pip check
+      - name: Build artifacts
+        run: python -m build
