@@ -1,48 +1,93 @@
-# Example configuration for a new Landing Gear service built from this starter.
-# Copy this to conf.toml and then change the service identity, port, and any auth/TLS settings.
+# Example configuration for a Landing Gear Foundry service.
+# Copy to conf.toml, then update identity, ports, and integration URLs.
 
+# ─── Service Identity ────────────────────────────────────────────────────────
 [service]
-name = "hello-service"  # rename before publishing your own fork
-version = "0.1.0"
-host = "127.0.0.1"
-port = 8780
-package_root = "hello_service"  # rename before publishing your own fork
-entrypoint = "service.py"
-install_flow = "install.py"
-kernel_package = "landing_gear"
-core_modules_package = "core_modules"
-plugins_package = "plugins"
-domain_package = "domain"
-repositories_package = "domain"
-schemas_package = "domain"
-states_package = "domain"
+name         = "hello-service"        # rename before publishing your own fork
+version      = "0.1.0"
+# service_id and instance_id are optional; Landing Gear generates instance_id
+# automatically at startup if not set. Set them explicitly for stable identity.
+# service_id = "hello-service"
+# instance_id = "hello-service-01"
+environment  = "development"          # development | staging | production
+host         = "127.0.0.1"
+port         = 8780
 
+# Package shape — update after renaming your service package.
+package_root          = "hello_service"
+entrypoint            = "service.py"
+install_flow          = "install.py"
+kernel_package        = "landing_gear"
+core_modules_package  = "core_modules"
+plugins_package       = "plugins"
+domain_package        = "domain"
+repositories_package  = "domain"
+schemas_package       = "domain"
+states_package        = "domain"
+
+# ─── Logging ─────────────────────────────────────────────────────────────────
 [logging]
-# DEBUG, INFO, WARNING, ERROR
+# DEBUG | INFO | WARNING | ERROR
 level = "INFO"
+# file = "logs/service.log"   # uncomment to log to a file
 
+# ─── Auth ────────────────────────────────────────────────────────────────────
 [auth]
 # Enable bearer-token auth when you are no longer developing anonymously.
 enabled = false
-# Simple starter-mode tokens. Replace with a custom provider before production.
+# Simple starter-mode static tokens. Replace with a real provider before production.
 static_tokens = {}
 # Example:
 # static_tokens.demo.subject = "demo-user"
-# static_tokens.demo.scopes = ["hello:read"]
+# static_tokens.demo.scopes  = ["hello:read"]
 # provider_path = "my_service.auth:build_provider"
 
+# ─── TLS (inbound) ───────────────────────────────────────────────────────────
 [tls]
-# Enable inbound HTTPS only after cert_file and key_file are set.
 enabled = false
 # cert_file = "certs/service.crt"
-# key_file = "certs/service.key"
+# key_file  = "certs/service.key"
 
+# ─── Outbound TLS ────────────────────────────────────────────────────────────
 [outbound_tls]
-# Enable when this service makes outbound HTTPS/TLS connections that need custom CA material.
 enabled = false
 # ca_file = "certs/ca.pem"
 
-[core_modules.hello]
+# ─── Ledger Integration ──────────────────────────────────────────────────────
+# Landing Gear will auto-enable the Ledger plugin when base_url is set.
+# Leave base_url unset (or comment this section) to run without Ledger.
+[ledger]
+# base_url = "http://127.0.0.1:8700"
+# strict   = false    # if true, failed event delivery raises instead of warning
+# timeout  = 5        # HTTP timeout in seconds
+
+# ─── Trustd Integration ──────────────────────────────────────────────────────
+# Landing Gear will auto-enable the Trustd plugin when base_url is set.
+[trustd]
+# base_url = "http://127.0.0.1:8710"
+# timeout  = 5
+
+# ─── Trustd Auth Middleware ──────────────────────────────────────────────────
+# Trustd_auth is kept separate from trustd so request-time auth concerns
+# do not bleed into general trust integration (spec §7).
+# Must be explicitly enabled.
+[trustd_auth]
+enabled = false
+# base_url = "http://127.0.0.1:8710"   # defaults to trustd.base_url if unset
+# required = false   # if true, all non-anonymous routes require a valid token
+# timeout  = 5
+
+# ─── Diagnostics ─────────────────────────────────────────────────────────────
+# Enabled by default. Enriches /api/v1/status with build metadata.
+[diagnostics]
 enabled = true
-import_path = "hello_service.core_modules.hello"  # update after package rename
-class_name = "HelloModule"
+# Add optional build metadata to surface at /api/v1/status:
+# [build]
+# commit = "abc1234"
+# built_at = "2026-03-25T00:00:00Z"
+
+# ─── Core Modules ────────────────────────────────────────────────────────────
+[core_modules.hello]
+enabled     = true
+import_path = "hello_service.core_modules.hello"   # update after package rename
+class_name  = "HelloModule"

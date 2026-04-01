@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .context import ServiceContext
 
 
 @dataclass(slots=True)
@@ -32,7 +35,7 @@ class ModuleRuntimeState:
 class BaseModule:
     INFO: ModuleInfo
 
-    def __init__(self, ctx: 'ServiceContext', config: dict[str, Any] | None = None) -> None:
+    def __init__(self, ctx: ServiceContext, config: dict[str, Any] | None = None) -> None:
         self.ctx = ctx
         self.config = config or {}
 
@@ -81,5 +84,3 @@ class CoreModule(BaseModule):
 class PluginModule(BaseModule):
     """Optional or shared extension module."""
 
-
-from .context import ServiceContext  # noqa: E402

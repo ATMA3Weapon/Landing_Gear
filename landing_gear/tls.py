@@ -115,9 +115,9 @@ def build_client_ssl_context(config: dict[str, Any]) -> ssl.SSLContext | None:
                 code='outbound_tls_config_invalid',
             )
         ctx.load_cert_chain(certfile=cert_file, keyfile=key_file)
-    ctx.check_hostname = settings.verify_hostname
     if not settings.verify_hostname:
-        ctx.verify_mode = ssl.CERT_REQUIRED if settings.ca_file else ssl.CERT_NONE
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
     return ctx
 
 

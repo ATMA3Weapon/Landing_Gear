@@ -6,7 +6,10 @@ from typing import Any
 
 from .errors import BadRequestError
 
-import tomllib
+try:
+    import tomllib  # type: ignore[attr-defined]
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore[no-redef]
 
 
 @dataclass(slots=True)

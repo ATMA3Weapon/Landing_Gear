@@ -5,10 +5,44 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import tomllib
+try:
+    import tomllib  # type: ignore[attr-defined]
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore[no-redef]
 
+
+from .service_shape import validate_service_shape_config
 
 ConfigDict = dict[str, Any]
+
+
+
+def _ensure_mapping(parent: ConfigDict, key: str) -> ConfigDict:
+    value = parent.setdefault(key, {})
+    if not isinstance(value, dict):
+        raise TypeError(f'config section is not a mapping: {key}')
+    return value
+
+
+def _parse_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+    return bool(value)
+
+
+def find_overlapping_queue_settings(config: ConfigDict) -> list[str]:
+    core_modules = config.get('core_modules', {})
+    queue = core_modules.get('queue', {}) if isinstance(core_modules, dict) else {}
+    hub = config.get('hub', {})
+    if not isinstance(hub, dict) or not isinstance(queue, dict):
+        return []
+    overlapping: list[str] = []
+    for key in ('lease_ttl_seconds', 'stale_worker_seconds', 'enable_housekeeping', 'housekeeping_interval_seconds'):
+        if key in hub and key in queue:
+            overlapping.append(key)
+    return overlapping
 
 
 @dataclass(slots=True)
@@ -71,7 +105,7 @@ def get_section(config: ConfigDict, name: str) -> ConfigDict:
 
 
 def apply_env_overrides(config: ConfigDict) -> list[str]:
-    service = config.setdefault('service', {})
+    service = _ensure_mapping(config, 'service')
     applied: list[str] = []
     if os.getenv('LANDING_GEAR_HOST'):
         service['host'] = os.environ['LANDING_GEAR_HOST']
@@ -80,19 +114,19 @@ def apply_env_overrides(config: ConfigDict) -> list[str]:
         service['port'] = int(os.environ['LANDING_GEAR_PORT'])
         applied.append('LANDING_GEAR_PORT')
     if os.getenv('LANDING_GEAR_LOG_LEVEL'):
-        config.setdefault('logging', {})['level'] = os.environ['LANDING_GEAR_LOG_LEVEL']
+        _ensure_mapping(config, 'logging')['level'] = os.environ['LANDING_GEAR_LOG_LEVEL']
         applied.append('LANDING_GEAR_LOG_LEVEL')
     if os.getenv('LANDING_GEAR_TLS_ENABLED'):
-        config.setdefault('tls', {})['enabled'] = os.environ['LANDING_GEAR_TLS_ENABLED'].lower() in {'1', 'true', 'yes', 'on'}
+        _ensure_mapping(config, 'tls')['enabled'] = _parse_bool(os.environ['LANDING_GEAR_TLS_ENABLED'])
         applied.append('LANDING_GEAR_TLS_ENABLED')
     if os.getenv('LANDING_GEAR_TLS_CERT_FILE'):
-        config.setdefault('tls', {})['cert_file'] = os.environ['LANDING_GEAR_TLS_CERT_FILE']
+        _ensure_mapping(config, 'tls')['cert_file'] = os.environ['LANDING_GEAR_TLS_CERT_FILE']
         applied.append('LANDING_GEAR_TLS_CERT_FILE')
     if os.getenv('LANDING_GEAR_TLS_KEY_FILE'):
-        config.setdefault('tls', {})['key_file'] = os.environ['LANDING_GEAR_TLS_KEY_FILE']
+        _ensure_mapping(config, 'tls')['key_file'] = os.environ['LANDING_GEAR_TLS_KEY_FILE']
         applied.append('LANDING_GEAR_TLS_KEY_FILE')
     if os.getenv('LANDING_GEAR_TLS_CA_FILE'):
-        config.setdefault('tls', {})['ca_file'] = os.environ['LANDING_GEAR_TLS_CA_FILE']
+        _ensure_mapping(config, 'tls')['ca_file'] = os.environ['LANDING_GEAR_TLS_CA_FILE']
         applied.append('LANDING_GEAR_TLS_CA_FILE')
     return applied
 
@@ -138,6 +172,9 @@ def validate_service_config(config: ConfigDict) -> None:
         value = service.get(optional_field)
         if value is not None and (not isinstance(value, str) or not value.strip()):
             raise ValueError(f'service.{optional_field} must be a non-empty string when set')
+    service_shape_errors = validate_service_shape_config(config)
+    if service_shape_errors:
+        raise ValueError('; '.join(service_shape_errors))
     host = service.get('host', '127.0.0.1')
     if not isinstance(host, str) or not host.strip():
         raise ValueError('service.host must be a non-empty string')
@@ -151,13 +188,35 @@ def validate_service_config(config: ConfigDict) -> None:
         raise ValueError('logging.level must be one of CRITICAL, ERROR, WARNING, INFO, DEBUG')
 
     auth_section = get_section(config, 'auth')
-    if auth_section.get('enabled'):
-        provider_path = auth_section.get('provider_path')
-        static_tokens = auth_section.get('static_tokens', {})
-        if provider_path is not None and not isinstance(provider_path, str):
-            raise ValueError('auth.provider_path must be a string when set')
-        if provider_path is None and static_tokens and not isinstance(static_tokens, dict):
-            raise ValueError('auth.static_tokens must be a mapping of token -> identity config')
+    provider_path = auth_section.get('provider_path')
+    static_tokens = auth_section.get('static_tokens', {})
+    provider_config = auth_section.get('provider_config')
+    if provider_path is not None and (not isinstance(provider_path, str) or not provider_path.strip()):
+        raise ValueError('auth.provider_path must be a non-empty string when set')
+    if static_tokens is not None and not isinstance(static_tokens, dict):
+        raise ValueError('auth.static_tokens must be a mapping of token -> identity config')
+    if provider_config is not None and not isinstance(provider_config, dict):
+        raise ValueError('auth.provider_config must be a mapping when set')
+    if auth_section.get('enabled') and provider_path is None and not static_tokens:
+        raise ValueError('auth.enabled=true requires auth.provider_path or auth.static_tokens')
+
+    hub_section = get_section(config, 'hub')
+    overlapping = find_overlapping_queue_settings(config)
+    if overlapping:
+        raise ValueError('duplicate queue policy config detected in both hub and core_modules.queue: ' + ', '.join(overlapping))
+    if 'storage' in hub_section:
+        storage_section = get_section(hub_section, 'storage')
+        backend = storage_section.get('backend', 'memory')
+        if not isinstance(backend, str) or backend.strip().lower() not in {'memory', 'sqlite'}:
+            raise ValueError('hub.storage.backend must be either memory or sqlite')
+        path = storage_section.get('path')
+        if backend.strip().lower() == 'sqlite' and (not isinstance(path, str) or not path.strip()):
+            raise ValueError('hub.storage.path must be a non-empty string when hub.storage.backend=sqlite')
+    if 'retention' in hub_section:
+        retention_section = get_section(hub_section, 'retention')
+        for key in ('audit_max_events', 'terminal_job_max_age_seconds', 'terminal_job_max_count'):
+            if key in retention_section and (not isinstance(retention_section[key], int) or retention_section[key] <= 0):
+                raise ValueError(f'hub.retention.{key} must be a positive integer')
 
     for section_name in ('core_modules', 'plugins'):
         section = get_section(config, section_name)
@@ -175,6 +234,15 @@ def validate_service_config(config: ConfigDict) -> None:
             depends_on = value.get('depends_on', [])
             if not isinstance(depends_on, list) or not all(isinstance(item, str) for item in depends_on):
                 raise ValueError(f'{section_name}.{key}.depends_on must be a list of strings')
+
+    core_modules = get_section(config, 'core_modules')
+    queue_section = core_modules.get('queue', {})
+    if isinstance(queue_section, dict):
+        for key in ('lease_ttl_seconds', 'stale_worker_seconds', 'housekeeping_interval_seconds', 'audit_max_events', 'terminal_job_max_age_seconds', 'terminal_job_max_count'):
+            if key in queue_section and (not isinstance(queue_section[key], int) or queue_section[key] <= 0):
+                raise ValueError(f'core_modules.queue.{key} must be a positive integer')
+        if 'enable_housekeeping' in queue_section and not isinstance(queue_section['enable_housekeeping'], bool):
+            raise ValueError('core_modules.queue.enable_housekeeping must be a boolean')
 
 
 def resolve_module_specs(config: ConfigDict, section_name: str) -> list[ModuleSpec]:

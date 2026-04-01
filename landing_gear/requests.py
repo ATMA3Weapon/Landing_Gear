@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Iterable, NoReturn
 from urllib.parse import urlparse
 
 from aiohttp import web
@@ -14,7 +14,7 @@ _TRUE_VALUES = {'1', 'true', 'yes', 'on'}
 _FALSE_VALUES = {'0', 'false', 'no', 'off'}
 
 
-def _raise(message: str, *, code: str = 'bad_request') -> None:
+def _raise(message: str, *, code: str = 'bad_request') -> NoReturn:
     raise BadRequestError(message, code=code)
 
 

@@ -172,8 +172,8 @@ class StarterRegressionTests(unittest.IsolatedAsyncioTestCase):
                 with patch.object(loader_mod, 'validate_manifest', return_value=None):
                     with self.assertRaisesRegex(RuntimeError, 'boom during setup'):
                         await manager.load([spec], kind='core_module')
-        self.assertIn('module.start_failed', ctx.events)
-        failure_events = [payload for name, payload in ctx.event_payloads if name == 'module.start_failed']
+        self.assertIn('module.setup_failed', ctx.events)
+        failure_events = [payload for name, payload in ctx.event_payloads if name == 'module.setup_failed']
         self.assertTrue(failure_events)
         self.assertEqual(failure_events[-1]['module_id'], 'mod.setup')
 

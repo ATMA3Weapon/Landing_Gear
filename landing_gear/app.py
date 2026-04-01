@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import ssl
+from typing import TYPE_CHECKING
 
 from aiohttp import web
 
@@ -8,10 +10,13 @@ from .errors import ServiceError
 from .logging import correlation_middleware, request_logging_middleware
 from .responses import json_error
 
+if TYPE_CHECKING:
+    from .context import ServiceContext
 
-LANDING_GEAR_CTX_KEY = web.AppKey('landing_gear_ctx', object)
-LANDING_GEAR_SERVER_SSL_CONTEXT_KEY = web.AppKey('landing_gear_server_ssl_context', object)
-LANDING_GEAR_CLIENT_SSL_CONTEXT_KEY = web.AppKey('landing_gear_client_ssl_context', object)
+
+LANDING_GEAR_CTX_KEY: web.AppKey[ServiceContext] = web.AppKey('landing_gear_ctx')
+LANDING_GEAR_SERVER_SSL_CONTEXT_KEY: web.AppKey[ssl.SSLContext | None] = web.AppKey('landing_gear_server_ssl_context')
+LANDING_GEAR_CLIENT_SSL_CONTEXT_KEY: web.AppKey[ssl.SSLContext | None] = web.AppKey('landing_gear_client_ssl_context')
 
 
 def _correlation_meta(request: web.Request) -> dict[str, str]:
@@ -158,7 +163,7 @@ class KernelApp:
                         'recommended_runtime_checks': [
                             '/healthz for quick health state',
                             '/status for lifecycle, ownership, and service shape',
-                            '/api/service/runtime for service-specific runtime visibility',
+                            '/api/diagnostics and /api/broker/runtime for broker-specific runtime visibility',
                         ],
                     },
                 },

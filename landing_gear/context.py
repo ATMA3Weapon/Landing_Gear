@@ -27,7 +27,6 @@ from .responses import (
     json_response,
 )
 from .tls import describe_tls_state
-from .config_profile import build_config_profile
 from .service_shape import build_service_shape
 from .trustd_pki import NullTrustRegistrar, TrustRegistrar
 
@@ -68,6 +67,10 @@ class ServiceContext:
         self.component_owners: dict[str, str] = {}
         self.component_metadata: dict[str, dict[str, Any]] = {}
         self.task_registry_owners: dict[str, dict[str, str]] = {'startup': {}, 'shutdown': {}}
+        self.call_owners: dict[str, str] = {}
+        self.health_check_owners: dict[str, str] = {}
+        self.hook_owners: dict[str, str] = {}
+        self.event_owners: dict[str, str] = {}
         self.config_section_owners: dict[str, dict[str, Any]] = {}
         self.lifecycle_events: list[dict[str, Any]] = []
 
@@ -87,6 +90,8 @@ class ServiceContext:
             'generic_service_runtime': '/status',
             'generic_service_health': '/healthz',
             'service_runtime': '/api/service/runtime',
+            'service_domain_runtime': '/api/broker/runtime',
+            'service_domain_diagnostics': '/api/diagnostics',
         }
 
     def service_runtime_surface(self) -> dict[str, Any]:
@@ -103,6 +108,7 @@ class ServiceContext:
             'repositories': self.repository_snapshot(),
             'config_ownership': self.config_ownership_snapshot(),
             'lifecycle': self.lifecycle_snapshot(limit=15),
+            'module_ownership': self.module_ownership_snapshot(),
         }
 
 
@@ -225,16 +231,33 @@ class ServiceContext:
                 'total': len(self.module_states),
             },
             'phase_counts': self.module_phase_counts(),
+            'ownership': self.module_ownership_snapshot(),
         }
 
 
     def config_profile(self) -> dict[str, Any]:
-        return build_config_profile(
-            self.config,
-            env_overrides=list(self.state.get('env_overrides', [])),
-            service_name=self.service_name,
-            service_version=self.service_version,
-        )
+        auth_config = self.get_section('auth') if isinstance(self.config, dict) else {}
+        tls = self.tls_state()
+        service = self.get_section('service') if isinstance(self.config, dict) else {}
+        core_modules = self.get_section('core_modules') if isinstance(self.config, dict) else {}
+        plugins = self.get_section('plugins') if isinstance(self.config, dict) else {}
+        enabled_core = sorted([name for name, section in core_modules.items() if isinstance(section, dict) and section.get('enabled', True) is not False])
+        enabled_plugins = sorted([name for name, section in plugins.items() if isinstance(section, dict) and section.get('enabled', True) is not False])
+        hub_config = self.get_section('hub') if isinstance(self.config, dict) and isinstance(self.config.get('hub', {}), dict) else {}
+        storage = hub_config.get('storage', {}) if isinstance(hub_config.get('storage', {}), dict) else {}
+        return {
+            'service_name': self.service_name,
+            'service_version': self.service_version,
+            'package_root': service.get('package_root', self.service_name),
+            'auth_enabled': bool(auth_config.get('enabled', False)),
+            'auth_mode': 'custom_provider' if auth_config.get('provider_path') else ('static_tokens' if auth_config.get('static_tokens') else 'disabled'),
+            'tls_enabled': bool(tls['inbound']['enabled']),
+            'outbound_tls_enabled': bool(tls['outbound']['enabled']),
+            'core_modules_enabled': enabled_core,
+            'plugins_enabled': enabled_plugins,
+            'storage_backend': str(storage.get('backend', 'memory')),
+            'env_overrides': list(self.state.get('env_overrides', [])),
+        }
 
     def readiness_snapshot(self) -> dict[str, Any]:
         blueprint_missing = []
@@ -301,17 +324,25 @@ class ServiceContext:
             tags=tags,
         )
 
-    def register_hook(self, name: str, handler) -> None:
+    def register_hook(self, name: str, handler, *, owner: str | None = None) -> None:
         self.hooks.add(name, handler)
+        self.hook_owners[name] = owner or 'service'
+        self.record_lifecycle_event('hook.registered', hook_name=name, owner=owner or 'service')
 
-    def subscribe_event(self, name: str, handler) -> None:
+    def subscribe_event(self, name: str, handler, *, owner: str | None = None) -> None:
         self.events.add(name, handler)
+        self.event_owners[name] = owner or 'service'
+        self.record_lifecycle_event('event.registered', event_name=name, owner=owner or 'service')
 
-    def register_call(self, name: str, handler) -> None:
+    def register_call(self, name: str, handler, *, owner: str | None = None) -> None:
         self.calls.add(name, handler)
+        self.call_owners[name] = owner or 'service'
+        self.record_lifecycle_event('call.registered', call_name=name, owner=owner or 'service')
 
-    def register_health_check(self, name: str, handler) -> None:
+    def register_health_check(self, name: str, handler, *, owner: str | None = None) -> None:
         self.health.add(name, handler)
+        self.health_check_owners[name] = owner or 'service'
+        self.record_lifecycle_event('health_check.registered', health_check=name, owner=owner or 'service')
 
     def register_startup_task(self, name: str, handler, *, owner: str | None = None) -> None:
         self.tasks.add_startup(name, handler)
@@ -488,6 +519,9 @@ class ServiceContext:
         raise ServiceError(message=message, status=status, code=code, details=details)
 
     def get_repository(self, name: str) -> Any:
+        registry = getattr(self.repositories, 'repositories', None)
+        if isinstance(registry, dict):
+            return registry.get(name)
         return self.repositories.get(name)
 
     def set_repository(self, name: str, repo: Any, *, owner: str | None = None) -> None:
@@ -660,6 +694,57 @@ class ServiceContext:
             'shutdown': dict(sorted(self.task_registry_owners['shutdown'].items())),
         }
 
+    def registry_ownership_snapshot(self) -> dict[str, Any]:
+        return {
+            'routes': {f"{route.method} {route.path}": route.owner or 'service' for route in self.routes.routes},
+            'calls': dict(sorted(self.call_owners.items())),
+            'health_checks': dict(sorted(self.health_check_owners.items())),
+            'hooks': dict(sorted(self.hook_owners.items())),
+            'events': dict(sorted(self.event_owners.items())),
+            'tasks': self.registered_task_snapshot(),
+        }
+
+    def module_ownership_snapshot(self) -> dict[str, Any]:
+        route_owners: dict[str, list[str]] = {}
+        for route in self.routes.routes:
+            owner = route.owner or 'service'
+            route_owners.setdefault(owner, []).append(f"{route.method} {route.path}")
+        for values in route_owners.values():
+            values.sort()
+
+        module_ids = sorted(set(self.module_states.keys()) | set(self.repository_owners.values()) | set(self.component_owners.values()) | set(self.managed_task_owners.values()) | set(self.call_owners.values()) | set(self.health_check_owners.values()) | set(self.hook_owners.values()) | set(self.event_owners.values()) | set(self.task_registry_owners['startup'].values()) | set(self.task_registry_owners['shutdown'].values()))
+        modules: dict[str, Any] = {}
+        warnings: list[str] = []
+        for module_id in module_ids:
+            if module_id == 'service':
+                continue
+            state = self.module_states.get(module_id, {})
+            modules[module_id] = {
+                'phase': state.get('phase'),
+                'kind': state.get('kind'),
+                'repositories': sorted([name for name, owner in self.repository_owners.items() if owner == module_id]),
+                'components': sorted([name for name, owner in self.component_owners.items() if owner == module_id]),
+                'managed_tasks': sorted([name for name, owner in self.managed_task_owners.items() if owner == module_id]),
+                'routes': route_owners.get(module_id, []),
+                'calls': sorted([name for name, owner in self.call_owners.items() if owner == module_id]),
+                'health_checks': sorted([name for name, owner in self.health_check_owners.items() if owner == module_id]),
+                'hooks': sorted([name for name, owner in self.hook_owners.items() if owner == module_id]),
+                'events': sorted([name for name, owner in self.event_owners.items() if owner == module_id]),
+                'startup_tasks': sorted([name for name, owner in self.task_registry_owners['startup'].items() if owner == module_id]),
+                'shutdown_tasks': sorted([name for name, owner in self.task_registry_owners['shutdown'].items() if owner == module_id]),
+                'config_sections': sorted([path for path, entry in self.config_section_owners.items() if entry.get('owner') == module_id]),
+            }
+            surface_count = sum(len(modules[module_id][key]) for key in ('repositories','components','managed_tasks','routes','calls','health_checks','hooks','events','startup_tasks','shutdown_tasks','config_sections'))
+            modules[module_id]['surface_count'] = surface_count
+            if module_id in self.module_states and surface_count == 0:
+                warnings.append(f'module {module_id} is loaded but does not own any registered surface')
+
+        return {
+            'modules': modules,
+            'registry_ownership': self.registry_ownership_snapshot(),
+            'warnings': warnings,
+        }
+
     def auto_register(self, instance: Any) -> None:
         owner = getattr(instance.INFO, 'id', instance.__class__.__name__)
         for _name, member in inspect.getmembers(instance, predicate=callable):
@@ -677,19 +762,19 @@ class ServiceContext:
 
             hook_def = getattr(member, '__lg_hook__', None)
             if hook_def is not None:
-                self.register_hook(hook_def['name'], member)
+                self.register_hook(hook_def['name'], member, owner=owner)
 
             event_def = getattr(member, '__lg_event__', None)
             if event_def is not None:
-                self.subscribe_event(event_def['name'], member)
+                self.subscribe_event(event_def['name'], member, owner=owner)
 
             call_def = getattr(member, '__lg_call__', None)
             if call_def is not None:
-                self.register_call(call_def['name'], member)
+                self.register_call(call_def['name'], member, owner=owner)
 
             health_def = getattr(member, '__lg_health__', None)
             if health_def is not None:
-                self.register_health_check(health_def['name'], member)
+                self.register_health_check(health_def['name'], member, owner=owner)
 
             startup_def = getattr(member, '__lg_startup_task__', None)
             if startup_def is not None:

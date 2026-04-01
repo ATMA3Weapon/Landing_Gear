@@ -17,6 +17,16 @@ class ModuleManager:
         self.modules: list[BaseModule] = []
         self._loaded_names: set[str] = set()
         self._loaded_ids: set[str] = set()
+        self._middleware_plugins: list[Any] = []
+
+    def register_middleware_plugins(self, app: Any) -> None:
+        """Call register_middleware on any loaded plugins that provide middleware.
+
+        Must be called before the aiohttp app starts (before start_all),
+        because aiohttp freezes app.middlewares once the app is running.
+        """
+        for plugin in self._middleware_plugins:
+            plugin.register_middleware(app)
 
     def _infer_manifest_path(self, module: Any, spec: ModuleSpec) -> str | None:
         if spec.manifest_path:
@@ -96,9 +106,13 @@ class ModuleManager:
                 self.ctx.loaded_modules.append(instance)
                 self._loaded_names.add(spec.name)
                 self._loaded_ids.add(module_id)
+                # Track plugins that expose HTTP middleware so service_factory
+                # can register them before the aiohttp app starts.
+                if kind == 'plugin' and callable(getattr(instance, 'register_middleware', None)):
+                    self._middleware_plugins.append(instance)
             except Exception as exc:
                 self.ctx.record_module_state(module_id, phase='failed', last_error=str(exc))
-                self.ctx.record_lifecycle_event('module.start_failed', module_id=instance.INFO.id, kind=instance.INFO.kind, error=str(exc))
+                self.ctx.record_lifecycle_event('module.setup_failed', module_id=instance.INFO.id, kind=instance.INFO.kind, error=str(exc))
                 raise
         return loaded
 
@@ -120,15 +134,18 @@ class ModuleManager:
         self.ctx.record_lifecycle_event('service.shutdown_tasks_starting', module_count=len(self.modules))
         shutdown_results = await self.ctx.tasks.run_shutdown()
         self.ctx.state['shutdown_results'] = shutdown_results
+        errors: list[Exception] = []
         for module in reversed(self.modules):
             try:
                 await module.stop()
                 self.ctx.record_module_state(module.INFO.id, stopped=True, phase='stopped')
                 self.ctx.record_lifecycle_event('module.stopped', module_id=module.INFO.id, kind=module.INFO.kind)
             except Exception as exc:
+                errors.append(exc)
                 self.ctx.record_module_state(module.INFO.id, phase='failed', last_error=str(exc))
                 self.ctx.record_lifecycle_event('module.stop_failed', module_id=module.INFO.id, kind=module.INFO.kind, error=str(exc))
-                raise
+        if errors:
+            raise errors[0]
 
     async def collect_health(self) -> dict[str, Any]:
         results: dict[str, Any] = {}

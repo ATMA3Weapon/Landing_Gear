@@ -46,11 +46,15 @@ async def build_web_app_from_config(config_path: str | Path) -> web.Application:
     app = KernelApp(ctx, manager)
     app.bind_routes()
     app.add_builtin_status_routes()
+    # Set SSL context keys and register plugin middleware BEFORE start_all.
+    # aiohttp freezes app.middlewares once the app starts, and modules that
+    # start managed tasks may need the SSL context keys to be present.
+    app.web_app[LANDING_GEAR_SERVER_SSL_CONTEXT_KEY] = build_server_ssl_context(config)
+    app.web_app[LANDING_GEAR_CLIENT_SSL_CONTEXT_KEY] = ctx.client_ssl_context
+    manager.register_middleware_plugins(app.web_app)
     ctx.record_lifecycle_event('service.starting')
     await ctx.emit_hook('service.starting')
     await manager.start_all()
     await ctx.emit_hook('service.started')
     ctx.record_lifecycle_event('service.started')
-    app.web_app[LANDING_GEAR_SERVER_SSL_CONTEXT_KEY] = build_server_ssl_context(config)
-    app.web_app[LANDING_GEAR_CLIENT_SSL_CONTEXT_KEY] = ctx.client_ssl_context
     return app.web_app

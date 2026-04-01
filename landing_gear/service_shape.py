@@ -1,7 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from pathlib import Path
 from typing import Any
+
+
+def _is_identifier_path(value: str) -> bool:
+    parts = [part for part in str(value).split('.') if part]
+    return bool(parts) and all(part.isidentifier() for part in parts)
+
+
+def package_path_to_dir(root: str | Path, package_path: str) -> Path:
+    current = Path(root)
+    for part in [part for part in str(package_path).split('.') if part]:
+        current = current / part
+    return current
 
 
 @dataclass(slots=True)
@@ -13,13 +26,13 @@ class ServiceShape:
     kernel_package: str = 'landing_gear'
     core_modules_package: str = 'core_modules'
     plugins_package: str = 'plugins'
-    domain_package: str = 'domain'
-    repositories_package: str = 'domain'
-    schemas_package: str = 'domain'
-    states_package: str = 'domain'
+    domain_package: str = 'broker'
+    repositories_package: str = 'broker'
+    schemas_package: str = 'broker'
+    states_package: str = 'broker'
     repositories_note: str = 'domain persistence lives outside the kernel'
     kernel_config_sections: tuple[str, ...] = ('service', 'logging', 'auth', 'tls', 'outbound_tls')
-    service_config_sections: tuple[str, ...] = ('core_modules', 'plugins')
+    service_config_sections: tuple[str, ...] = ('hub', 'core_modules', 'plugins')
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -41,10 +54,10 @@ class ServiceShape:
                 'plugins only when they clearly belong at the edge',
             ],
             'do_not_copy_from_reference_service': [
-                'service-specific routes and semantics from the example service without reviewing your own domain needs',
-                'example retention or storage defaults without reviewing service needs',
-                'example admin endpoints for unrelated services',
-                'domain types from another service package into unrelated services',
+                'Hub broker routes and job semantics unless the new service is also a broker',
+                'Hub retention policy numbers without reviewing service needs',
+                'Hub-specific admin endpoints for unrelated services',
+                'service domain types from broker/* into unrelated services',
             ],
             'kernel_owns': [
                 'app factory and middleware',
@@ -71,7 +84,7 @@ class ServiceShape:
             'runtime_surface_split': {
                 'generic_service_surface': ['/healthz', '/status'],
                 'service_runtime_surface': ['/api/service/runtime'],
-                'service_domain_runtime_surface': ['service-defined runtime and diagnostics endpoints'],
+                'service_domain_runtime_surface': ['/api/broker/runtime', '/api/diagnostics'],
             },
         }
 
@@ -85,7 +98,7 @@ def build_service_shape(config: dict[str, Any]) -> ServiceShape:
     kernel_package = str(service.get('kernel_package') or 'landing_gear')
     core_modules_package = str(service.get('core_modules_package') or 'core_modules')
     plugins_package = str(service.get('plugins_package') or 'plugins')
-    domain_package = str(service.get('domain_package') or 'domain')
+    domain_package = str(service.get('domain_package') or 'broker')
     repositories_package = str(service.get('repositories_package') or domain_package)
     schemas_package = str(service.get('schemas_package') or domain_package)
     states_package = str(service.get('states_package') or domain_package)
@@ -104,3 +117,31 @@ def build_service_shape(config: dict[str, Any]) -> ServiceShape:
         states_package=states_package,
         repositories_note=repositories_note,
     )
+
+
+def validate_service_shape_config(config: dict[str, Any]) -> list[str]:
+    service = config.get('service', {}) if isinstance(config, dict) else {}
+    errors: list[str] = []
+    package_field_names = (
+        'package_root',
+        'kernel_package',
+        'core_modules_package',
+        'plugins_package',
+        'domain_package',
+        'repositories_package',
+        'schemas_package',
+        'states_package',
+    )
+    for field in package_field_names:
+        value = service.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip() or not _is_identifier_path(value.strip()):
+            errors.append(f'service.{field} must use dot-separated Python identifiers')
+    for field in ('entrypoint', 'install_flow'):
+        value = service.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, str) or not value.strip().endswith('.py'):
+            errors.append(f'service.{field} must point to a .py file')
+    return errors
